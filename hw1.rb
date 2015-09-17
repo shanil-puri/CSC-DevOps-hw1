@@ -39,6 +39,7 @@ class Deployment
                                                 ssh_keys: ["30:3a:5f:0f:76:fa:35:05:2c:be:53:fa:3d:47:0e:0a"]
                                             );
         @droplet = @client.droplets.create(@droplet)
+        puts "Droplet in DigitalOcean created!!"
     end
 
     def self.delete_droplet
@@ -61,7 +62,7 @@ class Deployment
                                             :key_pair => key_pair
                                         )
         sleep 1 until @ec2_instance.status != :pending
-
+        puts "AWS EC2 instance created!!!!"
     end
 
     def self.get_dig_droplet_reservation
@@ -84,6 +85,7 @@ class Deployment
     def self.create_inventory
         dropletIp = self.get_dig_droplet_reservation;
         while dropletIp.nil?
+            puts "Droplet not ready. Sleep for 30 secs and try again!!!"
             sleep 30;
             dropletIp = self.get_dig_droplet_reservation;
         end
@@ -91,7 +93,7 @@ class Deployment
         printf "Digitalocean droplet created with IP: " + dropletIp
         
         awsIp = self.get_aws_reservation
-        printf "\n\nAWS EC2 instance created with IP: " + awsIp
+        printf "\n\nAWS EC2 instance created with IP: " + awsIp + "\n"
 
         digital_inv = "droplet ansible_ssh_host="+dropletIp+" ansible_ssh_user=root ansible_ssh_private_key_file=./digoc_kw.key\n"
         aws_inv = "aws ansible_ssh_host="+awsIp+" ansible_ssh_user=ubuntu ansible_ssh_private_key_file=./aws_hw1.pem"
@@ -110,7 +112,7 @@ class Deployment
             self.create_inventory
         elsif args == "deploy"
             self.create_inventory
-            exec `ansible-playbook -i inventory playbook.yml`
+            system `ansible-playbook -i inventory playbook.yml`
         else
             printf "Wrong aruments supplied.";
         end
