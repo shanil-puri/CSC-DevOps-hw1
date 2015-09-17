@@ -2,10 +2,9 @@
 require 'rubygems'
 require 'json'
 require 'droplet_kit'
-require 'ansible_module'
-require 'aws-sdk'
+require 'aws-sdk-v1'
 
-class Deployment < AnsibleModule
+class Deployment
     @region = 'nyc3';
     @droplet_size = '512mb';
     @droplet_image = "ubuntu-14-04-x64";
@@ -18,86 +17,100 @@ class Deployment < AnsibleModule
     @ec2_instance = ''
 
     def self.populate_keys
-        file = File.read('file-name-to-be-read.json');
+        file = File.read('access_keys.json');
         keys_arr = JSON.parse(file);
         @token = keys_arr["digoc_token"];
         @aws_access_key = keys_arr["AccessKeyId"];
         @aws_sercret_key = keys_arr["SecretAccessKey"];
-        @aws_size = 't1.micro'
+        @aws_size = 't2.micro'
+        @key_pair_name       = 'aws_hw1'                         # key pair name
+        @private_key_file    = "aws_hw1.pem" # path to your private key
+        @security_group_name = 'hw1'                            # security group name
+        @instance_type       = 't2.micro'
     end
 
     def self.create_dig_droplet
         @client = DropletKit::Client.new(access_token: @token);
-        @droplet = JSON.parse(DropletKit::Droplet.new(name: droplet_name, region: region, size: droplet_size, image: droplet_image, user_data: userdata))["droplet"];
-        @client.droplets.create(@droplet)
+        @droplet = DropletKit::Droplet.new(
+                                                    name: @droplet_name, 
+                                                    region: @region, 
+                                                    size: @droplet_size, 
+                                                    image: @droplet_image);
+        @droplet = @client.droplets.create(@droplet)
     end
 
     def self.delete_droplet
-        dropletId = @droplet["id"];
-        @client.droplets.delete(id: dropletId);
+        @client.droplets.delete(id: @droplet.id);
     end
 
     def self.create_aws_instance
-        Aws.config.update({
-                region: 'us-west-2',
-                credentials: Aws::Credentials.new(@aws_access_key, @aws_sercret_key),
-            })
+        AWS.config(
+                    :access_key_id     => @aws_access_key, 
+                    :secret_access_key => @aws_sercret_key
+                )
+        @ec2                 = AWS::EC2.new.regions['us-west-2']
+        key_pair = @ec2.key_pairs[@key_pair_name]
+        security_group = @ec2.security_groups.find{|sg| sg.name == @security_group_name }
+        @ec2_instance = @ec2.instances.create(
+                                            :image_id => "ami-c9fbe4f9", 
+                                            :instance_type   => @instance_type, 
+                                            :count => 1,
+                                            :security_groups => security_group, 
+                                            :key_pair => key_pair
+                                        )
+        sleep 1 until @ec2_instance.status != :pending
 
-        @ec2 = Aws::EC2::Client.new(region:'us-west-2', credentials: credentials)
-        @ec2_instance = @ec2.instances.create(   
-                                :image_id => 'ami-11d68a54',
-                                :instance_type => @aws_size,
-                                :count => 1, 
-                                :security_groups => 'sg-20fb7744', 
-                                :key_pair => ec2.key_pairs['spuri3']
-                            ) 
     end
 
     def self.get_dig_droplet_reservation
-        dropletId = @droplet["id"];
-        action = JSON.parse(@client.droplet_actions.reboot(id: dropletId))["action"];
-        action_status = action["status"];
+        @droplet = @client.droplets.find(id: @droplet.id)
         
-        while action_status != "completed"
-            print "Droplet not ready, will retry after 30 sec";
-            sleep(30);
-            action_status = JSON.parse(@client.droplet_actions.find(id: action["id"]))["action"]["status"];
+        if @droplet.status == "active"
+            return @droplet.networks["v4"][0]["ip_address"]
         end
-        droplet_ip = JSON.parse(@client.droplets.find(id: @droplet["id"]))["droplet"]["networks"]["v4"];
-        return droplet_ip;
+        
+        return nil;
     end
 
     def self.get_aws_reservation
-        while @instance.status == :pending
-            printf "AWS instance not ready. Retry after 30 secs";
-            sleep 30;
+        if @ec2_instance.status == :pending
+            self.create_aws_instance
         end
-        return @instance.ip_address
+        return @ec2_instance.ip_address
     end
 
     def self.create_inventory
         dropletIp = self.get_dig_droplet_reservation;
+        while dropletIp.nil?
+            sleep 30;
+            dropletIp = self.get_dig_droplet_reservation;
+        end
+
         printf "Digitalocean droplet created with IP: " + dropletIp
         
         awsIp = self.get_aws_reservation
         printf "AWS EC2 instance created with IP: " + awsIp
 
-        digital_inv = "droplet ansible_ssh_host="+dropletIp+" ansible_ssh_user=root ansible_ssh_private_key_file=./keys/hw1.key\n"
-        aws_inv = "aws ansible_ssh_host="+awsIp+" ansible_ssh_user=ubuntu ansible_ssh_private_key_file=./keys/aws_hw1.key"
+        digital_inv = "droplet ansible_ssh_host="+dropletIp+" ansible_ssh_user=root ansible_ssh_private_key_file=./digoc_kw.key\n"
+        aws_inv = "aws ansible_ssh_host="+awsIp+" ansible_ssh_user=ubuntu ansible_ssh_private_key_file=./aws_hw1.pem"
         
         File.open('inventory', 'w') do |f|
             f2.puts digital_inv;
             f2.puts aws_inv;
         end
     end
-    def main args
+    def self.ansible_deploy args
+        self.populate_keys
         self.create_aws_instance
         self.create_dig_droplet
 
         if args == "inventory" 
             self.create_inventory
         elsif args == "deploy"
+            self.create_inventory
             exec `ansible-playbook -i inventory playbook.yml`
+        else
+            printf "Wrong aruments supplied.";
         end
     end
 end
