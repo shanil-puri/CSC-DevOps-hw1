@@ -32,10 +32,12 @@ class Deployment
     def self.create_dig_droplet
         @client = DropletKit::Client.new(access_token: @token);
         @droplet = DropletKit::Droplet.new(
-                                                    name: @droplet_name, 
-                                                    region: @region, 
-                                                    size: @droplet_size, 
-                                                    image: @droplet_image);
+                                                name: @droplet_name, 
+                                                region: @region, 
+                                                size: @droplet_size, 
+                                                image: @droplet_image,
+                                                ssh_keys: ["30:3a:5f:0f:76:fa:35:05:2c:be:53:fa:3d:47:0e:0a"]
+                                            );
         @droplet = @client.droplets.create(@droplet)
     end
 
@@ -89,14 +91,14 @@ class Deployment
         printf "Digitalocean droplet created with IP: " + dropletIp
         
         awsIp = self.get_aws_reservation
-        printf "AWS EC2 instance created with IP: " + awsIp
+        printf "\n\nAWS EC2 instance created with IP: " + awsIp
 
         digital_inv = "droplet ansible_ssh_host="+dropletIp+" ansible_ssh_user=root ansible_ssh_private_key_file=./digoc_kw.key\n"
         aws_inv = "aws ansible_ssh_host="+awsIp+" ansible_ssh_user=ubuntu ansible_ssh_private_key_file=./aws_hw1.pem"
         
         File.open('inventory', 'w') do |f|
-            f2.puts digital_inv;
-            f2.puts aws_inv;
+            f.puts digital_inv;
+            f.puts aws_inv;
         end
     end
     def self.ansible_deploy args
