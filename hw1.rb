@@ -14,6 +14,8 @@ class Deployment < AnsibleModule
     @client = '';
     @aws_access_key = '';
     @aws_secret_key = '';
+    @ec2 = '';
+    @ec2_instance = ''
 
     def self.populate_keys
         file = File.read('file-name-to-be-read.json');
@@ -21,7 +23,7 @@ class Deployment < AnsibleModule
         @token = keys_arr["digoc_token"];
         @aws_access_key = keys_arr["AccessKeyId"];
         @aws_sercret_key = keys_arr["SecretAccessKey"];
-        @aws_size = 't2.micro'
+        @aws_size = 't1.micro'
     end
 
     def self.create_dig_droplet
@@ -41,8 +43,8 @@ class Deployment < AnsibleModule
                 credentials: Aws::Credentials.new(@aws_access_key, @aws_sercret_key),
             })
 
-        ec2 = Aws::EC2::Resource.new(region:'us-west-2', credentials: credentials)
-        ec2.instances.create(   
+        @ec2 = Aws::EC2::Client.new(region:'us-west-2', credentials: credentials)
+        @ec2_instance = @ec2.instances.create(   
                                 :image_id => 'ami-11d68a54',
                                 :instance_type => @aws_size,
                                 :count => 1, 
@@ -66,8 +68,11 @@ class Deployment < AnsibleModule
     end
 
     def self.get_aws_reservation
-        aws_ip = ""
-        return aws_ip
+        while @instance.status == :pending
+            printf "AWS instance not ready. Retry after 30 secs";
+            sleep 30;
+        end
+        return @instance.ip_address
     end
 
     def self.create_inventory
